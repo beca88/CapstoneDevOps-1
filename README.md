@@ -6,7 +6,7 @@ This repository contains the code, configuration, and documentation for our fina
 
 ## 👥 Team Members
 * **Beste** - Cloud Infrastructure & Environments
-* **Blake** - Architecture & Docker DevOps Engineer & [Add Role]
+* **Blake** - Architecture & Docker DevOps Engineer
 * **Rebecca** - [Add Role]
 
 ## 🎯 Project Overview

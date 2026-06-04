@@ -1,12 +1,12 @@
 # SIT DevOps Capstone Project 🚀
 
-**Southern Institute of Technology (SIT) - Master of Information Technology**
+**Southern Institute of Technology (SIT) - Bachelor of Information Technology**
 
 This repository contains the code, configuration, and documentation for our final DevOps capstone project. The project demonstrates a modern, end-to-end cloud-native deployment lifecycle on Microsoft Azure, adhering to industry best practices and NIST cloud security frameworks.
 
 ## 👥 Team Members
 * **Beste** - Cloud Infrastructure & Environments
-* **Blake** - Architecture & [Add Role]
+* **Blake** - Architecture & Docker DevOps Engineer & [Add Role]
 * **Rebecca** - [Add Role]
 
 ## 🎯 Project Overview

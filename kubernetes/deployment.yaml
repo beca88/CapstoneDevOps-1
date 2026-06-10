@@ -1,66 +1,252 @@
-# kubernetes/deployment.yaml
+# =========================================================================
+# 1. STORAGE: Persistent Volume Claim (PVC) for the Database
+# =========================================================================
+# This requests a real, 10GB Azure Managed SSD disk from the cloud infrastructure.
+# It ensures your PostgreSQL data survives if the pod restarts or updates.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce             # Only a single node/pod can read/write to this disk
+  storageClassName: default     # Leverages Azure's default premium-managed storage class
+  resources:
+    requests:
+      storage: 10Gi             # 10 Gigabytes is highly cost-efficient for a student project
+---
+# =========================================================================
+# 2. KEY VAULT: Secrets Store CSI Driver Configuration
+# =========================================================================
+# This block connects AKS straight to Azure Key Vault (Checkpoint 5: Security).
+# It fetches secrets from the cloud and maps them into a local K8s secret object.
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: healthchecks-kv-provider
+  namespace: default
+spec:
+  provider: azure
+  secretObjects:                                 # Automatically provisions a temporary K8s Secret
+  - secretName: healthchecks-secret
+    type: Opaque
+    data:
+    - objectName: db-password                     # Name of the secret inside Azure Key Vault
+      key: DB_PASSWORD                            # Key name used below by environment injections
+    - objectName: secret-key
+      key: SECRET_KEY
+  parameters:
+    usePodIdentity: "false"                      
+    useVMManagedIdentity: "true"                 # Leverages AKS Managed Identity for passwordless cloud access
+    userAssignedIdentityID: "<AKS_CLIENT_ID>"    # TODO: Replace with your AKS Kubelet Identity Client ID
+    keyvaultName: "kv-capstone-project"          # TODO: Replace with your actual Azure Key Vault name
+    objects:  |
+      array:
+        - |
+          objectName: db-password
+          objectType: secret                     
+        - |
+          objectName: secret-key
+          objectType: secret
+    tenantId: "<YOUR_AZURE_TENANT_ID>"           # TODO: Replace with your Azure Student Sub Directory ID
+---
+# =========================================================================
+# 3. CONFIGMAP: Application Non-Sensitive Environmental Constants
+# =========================================================================
+# Decouples application architectural configurations from your source code blocks.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: healthchecks-config
+  namespace: default
+data:
+  SITE_ROOT: "http://localhost:8000"             # Core App URL. Update with your Azure LoadBalancer IP later.
+  ALLOWED_HOSTS: "*"                  # Allows Azure routing tables to forward web requests cleanly
+  DEBUG: "False"                      # Production Safeguard: Disables Python/Django internal debugging
+  DB: "postgres"                      # Directs healthchecks engine to run on Enterprise Postgres
+  DB_NAME: "healthchecks"             # Target database schema name
+  DB_USER: "hc_admin"                 # Database administrator user
+  DB_PORT: "5432"                     # Standard communication port
+  DB_HOST: "postgres-service"         # Points directly to the internal K8s Service Domain below
+---
+# =========================================================================
+# 4. POSTGRES DEPLOYMENT: Self-Hosted Containerized Database
+# =========================================================================
+# Provisions the core database instance entirely inside your cluster to save credits.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: healthchecks-web
-  labels:
-    app: healthchecks
-    tier: frontend
+  name: postgres-deployment
+  namespace: default
 spec:
-  replicas: 2  # Ensures high availability across your AKS cluster nodes
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0  # Guarantees zero-downtime upgrades
+  replicas: 1                         # Database clusters should stay at 1 pod to prevent desync
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:14-alpine     # High performance, secure, lightweight base image
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: DB_NAME
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: DB_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: healthchecks-secret  # Dynamically generated from the Azure Key Vault mapping
+              key: DB_PASSWORD
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data # Standard mount target for Postgres data payloads
+        resources:                    # Compute resource optimization safeguards
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc     # Binds our dynamic Azure Managed Disk block here
+---
+# =========================================================================
+# 5. POSTGRES SERVICE: Internal Isolation Network Link
+# =========================================================================
+# Creates a constant internal DNS link so your app pod can track down your DB pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: default
+spec:
+  type: ClusterIP                     # Restricts exposure: Invisible to the public internet
+  ports:
+  - port: 5432
+    targetPort: 5432
+  selector:
+    app: postgres
+---
+# =========================================================================
+# 6. APP DEPLOYMENT: Healthchecks Core Processing Pod
+# =========================================================================
+# Manages the execution lifecycle of your customized healthchecks image.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: healthchecks-deployment
+  namespace: default
+spec:
+  replicas: 1                         # Set to 1 to respect student subscription quotas
   selector:
     matchLabels:
       app: healthchecks
-      tier: frontend
   template:
     metadata:
       labels:
         app: healthchecks
-        tier: frontend
     spec:
       containers:
       - name: healthchecks-app
-        # The pipeline replaces #{Build.BuildId}# with the live build number automatically
-        image: youracrname.azurecr.io/healthchecks:#{Build.BuildId}#
-        imagePullPolicy: IfNotPresent
+        # TODO: Replace <YOUR_ACR_NAME> with your actual Azure Container Registry resource name
+        image: <YOUR_ACR_NAME>.azurecr.io/healthchecks:latest
+        imagePullPolicy: Always       # Forces cluster to pull down newly compiled image updates
         ports:
         - containerPort: 8000
-          name: http
-        
-        # Production Environment Configurations for Django
-        env:
-        - name: DEBUG
-          value: "False"
-        - name: ALLOWED_HOSTS
-          value: "*"  # In production, change this to your specific Azure Ingress domain
-        - name: DB_HOST
-          value: "your-postgres-server.postgres.database.azure.com" # Your Terraform-created DB
-        
-        # Resource allocations targeting Checkpoint 4 (Optimization)
-        resources:
+        resources:                    # Prevents application runaway thread crashes
           limits:
             cpu: "500m"
             memory: "512Mi"
           requests:
             cpu: "250m"
             memory: "256Mi"
-
+        env:
+        - name: SITE_ROOT
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: SITE_ROOT
+        - name: ALLOWED_HOSTS
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: ALLOWED_HOSTS
+        - name: DEBUG
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: DEBUG
+        - name: DB
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: DB
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: DB_HOST
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: DB_NAME
+        - name: DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: healthchecks-config
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: healthchecks-secret
+              key: DB_PASSWORD
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: healthchecks-secret
+              key: SECRET_KEY
+        volumeMounts:
+        - name: secrets-store-inline
+          mountPath: "/mnt/secrets-store" # Mounts the Key Vault engine secure pathway
+          readOnly: true
+      volumes:
+        - name: secrets-store-inline
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "healthchecks-kv-provider" # Hooks into the Key Vault driver metadata
 ---
+# =========================================================================
+# 7. APP SERVICE: Public External Internet Gate
+# =========================================================================
+# Automatically spins up a native Azure Public IP Load Balancer to catch outside pings.
 apiVersion: v1
 kind: Service
 metadata:
   name: healthchecks-service
+  namespace: default
 spec:
-  type: ClusterIP  # Keeps pods secure; route traffic to this using an Ingress controller later
+  type: LoadBalancer                  # Provisions public frontend infrastructure
   ports:
-  - port: 80
-    targetPort: 8000
+  - port: 80                          # Public Internet facing port (HTTP)
+    targetPort: 8000                  # Redirection target down to internal application pod
     protocol: TCP
   selector:
-    app: healthchecks
-    tier: frontend
+    app: healthchecks                  # Captures and distributes traffic directly into your app pod

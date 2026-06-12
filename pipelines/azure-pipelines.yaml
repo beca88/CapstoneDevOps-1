@@ -1,53 +1,70 @@
 trigger:
   branches:
     include:
-    - main
-resources:
-  repositories:
-  - repository: CapstoneRepo
-    type: github
-    endpoint: CapstoneDevOps-Repo-Connection
-    name: Xoray11/CapstoneDevOps
-variables:
-- name: imageRepository
-  value: 'healthchecks'
-- name: containerRegistry
-  value: 'acrcapstone3957.azurecr.io'
-- name: dockerfilePath
-  value: 'Dockerfile'
-- name: tag
-  value: 'latest'
-- name: vmImageName
-  value: 'ubuntu-latest'
-stages:
-- stage: __default
-  jobs:
-  - job: Build
-    displayName: Build
-    pool:
-      vmImage: $(vmImageName)
-    steps:
-    - task: 6d15af64-176c-496d-b583-fd2ae21d4df4@1
-      inputs:
-        repository: CapstoneRepo
-    - task: CmdLine@2
-      displayName: 'Docker Login'
-      inputs:
-        script: |
-          echo "$(acrPassword)" | docker login $(containerRegistry) -u acrcapstone3957 --password-stdin
-    - task: CmdLine@2
-      displayName: 'Create Empty Requirements Files'
-      inputs:
-        script: |
-          touch requirements.txt requirements-dev.txt
-    - task: CmdLine@2
-      displayName: 'Docker Build'
-      inputs:
-        script: |
-          docker build -t $(containerRegistry)/$(imageRepository):$(tag) -f $(dockerfilePath) .
-    - task: CmdLine@2
-      displayName: 'Docker Push'
-      inputs:
-        script: |-
-          docker push $(containerRegistry)/$(imageRepository):$(tag)
+      - main
+      - feature/k8s-deployment
 
+variables:
+- group: keyvault-variable-group
+
+stages:
+
+# ==================================
+# BUILD IMAGE DIRECTLY IN ACR
+# ==================================
+- stage: Build
+  displayName: Build container image using ACR
+  jobs:
+  - job: BuildImage
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: AzureCLI@2
+      displayName: Build image in Azure Container Registry
+      inputs:
+        azureSubscription: azure-connection-capstone
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az acr build \
+            --registry acrcapstone1769 \
+            --image healthchecks:latest \
+            .
+
+# ======================
+# DEPLOY TO AKS
+# ======================
+- stage: Deploy
+  displayName: Deploy application to AKS
+  dependsOn: Build
+  jobs:
+  - job: Deploy
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+
+    # Create / Update Kubernetes Secret from Key Vault
+    - task: Kubernetes@1
+      displayName: Create Kubernetes Secret
+      inputs:
+        connectionType: Azure Resource Manager
+        azureSubscription: azure-connection-capstone
+        azureResourceGroup: rg-capstone-project
+        kubernetesCluster: shopping-aks
+        command: createSecret
+        arguments: >
+          generic app-secret
+          --from-literal=SECRET_KEY=$(django-secret-key)
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    # Apply Kubernetes Deployment
+    - task: Kubernetes@1
+      displayName: Deploy application to AKS
+      inputs:
+        connectionType: Azure Resource Manager
+        azureSubscription: azure-connection-capstone
+        azureResourceGroup: rg-capstone-project
+        kubernetesCluster: shopping-aks
+        command: apply
+        useConfigurationFile: true
+        configuration: kubernetes/deployment.yaml

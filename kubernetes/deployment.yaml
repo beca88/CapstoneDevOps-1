@@ -2,8 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: healthchecks-deployment
+  labels:
+    app: healthchecks
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: healthchecks
@@ -15,14 +17,32 @@ spec:
       containers:
         - name: healthchecks
           image: acrcapstone1769.azurecr.io/healthchecks:latest
+          imagePullPolicy: Always
+
           command: ["/bin/sh"]
           args:
             - -c
             - |
               python manage.py migrate &&
               python manage.py runserver 0.0.0.0:8000
+
           ports:
             - containerPort: 8000
+
           env:
             - name: ALLOWED_HOSTS
               value: "*"
+
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: SECRET_KEY
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "300m"
+              memory: "512Mi"

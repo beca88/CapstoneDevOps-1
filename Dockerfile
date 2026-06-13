@@ -2,33 +2,25 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# ✅ Install required system dependencies
+# ✅ Install your preferred system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     default-libmysqlclient-dev \
-    libffi-dev \
-    libssl-dev \
+    libmariadb-dev \
     curl \
-    libcurl4-openssl-dev \
-    libpq-dev \
-    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# ✅ Tell pycurl explicitly to use OpenSSL during pip compilation
-ENV PYCURL_SSL_LIBRARY=openssl
+# 🎯 FIX: Point to the subfolder so Docker can actually find the files!
+COPY application/healthchecks/requirements.txt application/healthchecks/requirements-dev.txt ./
 
-# ✅ Upgrade pip + setuptools + wheel
-RUN pip install --upgrade pip setuptools wheel
+# ✅ Install both requirements lists just like you wanted
+RUN pip install --no-cache-dir \
+    -r requirements.txt \
+    -r requirements-dev.txt
 
-# 🎯 FIX: Use the exact explicit path to copy requirements.txt straight to /app/
-COPY application/healthchecks/requirements.txt /app/requirements.txt
-
-# ✅ Install dependencies
-RUN pip install --no-cache-dir --prefer-binary -r /app/requirements.txt
-
-# 🎯 FIX: Copy your app files explicitly straight into /app/
-COPY application/healthchecks/ /app/
+# 🎯 FIX: Copy the contents of your app subfolder directly into /app
+COPY application/healthchecks/ .
 
 EXPOSE 8000
 

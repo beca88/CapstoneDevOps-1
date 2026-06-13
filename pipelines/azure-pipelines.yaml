@@ -9,13 +9,13 @@ variables:
 stages:
 
 # =====================================
-# BUILD IMAGE DIRECTLY IN ACR (NO DOCKER LOGIN)
+# BUILD IMAGE DIRECTLY IN ACR (NO DOCKER LOGIN REQUIRED)
 # =====================================
 - stage: Build
   displayName: Build container image in ACR
   jobs:
   - job: BuildImage
-    displayName: ACR Build
+    displayName: ACR_Build
     pool:
       vmImage: ubuntu-latest
     steps:
@@ -26,9 +26,11 @@ stages:
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
-          echo "Building image in Azure Container Registry..."
+          echo "Building and tagging image in Azure Container Registry..."
+          # Using Build.BuildId ensures a unique tag for every deployment instead of overwriting 'latest'
           az acr build \
             --registry acrcapstone1769 \
+            --image healthchecks:$(Build.BuildId) \
             --image healthchecks:latest \
             .
 
@@ -58,6 +60,19 @@ stages:
           generic app-secret
           --from-literal=SECRET_KEY=$(django-secret-key)
           --dry-run=client -o yaml | kubectl apply -f -
+
+    # Ensure AKS can pull the image by creating an imagePullSecret using your new ACR connection credentials
+    - task: Kubernetes@1
+      displayName: Create ACR Pull Secret in AKS
+      inputs:
+        connectionType: Azure Resource Manager
+        azureSubscription: azure-connection-capstone
+        azureResourceGroup: rg-capstone-project
+        kubernetesCluster: shopping-aks
+        command: createSecret
+        secretType: dockerRegistry
+        secretName: acr-pull-secret
+        dockerRegistryEndpoint: ACR-Connection # The exact name of the Service Connection you just created!
 
     # Apply Kubernetes manifests
     - task: Kubernetes@1

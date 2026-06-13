@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# ✅ Install required system dependencies
+# ✅ Install required system dependencies (Added libcurl4-openssl-dev for pycurl)
 RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     python3-dev \
     curl \
+    libcurl4-openssl-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 

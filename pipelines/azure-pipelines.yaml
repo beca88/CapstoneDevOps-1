@@ -27,6 +27,7 @@ stages:
               repository: 'healthchecks'
               command: 'buildAndPush'
               Dockerfile: '**/Dockerfile'
+              buildContext: '$(Build.SourcesDirectory)'
               tags: |
                 $(Build.BuildId)
                 latest

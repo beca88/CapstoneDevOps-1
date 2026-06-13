@@ -4,7 +4,7 @@ trigger:
       - feature/k8s-deployment
 
 variables:
-- group: keyvault-variable-group
+ - group: keyvault-variable-group
 
 stages:
 

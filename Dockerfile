@@ -2,14 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# ✅ Install ALL required development libraries for pycurl and psycopg
+# ✅ Install ALL required libraries, pointing explicitly to python3.11-dev
 RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     default-libmysqlclient-dev \
     libffi-dev \
     libssl-dev \
-    python3-dev \
+    python3.11-dev \
     curl \
     libcurl4-openssl-dev \
     libpq-dev \

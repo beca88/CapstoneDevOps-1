@@ -1,7 +1,6 @@
 trigger:
   branches:
     include:
-      - main
       - feature/k8s-deployment
 
 variables:
@@ -9,43 +8,46 @@ variables:
 
 stages:
 
-# ==================================
-# BUILD IMAGE DIRECTLY IN ACR
-# ==================================
+# =====================================
+# BUILD IMAGE DIRECTLY IN ACR (NO DOCKER LOGIN)
+# =====================================
 - stage: Build
-  displayName: Build container image using ACR
+  displayName: Build container image in ACR
   jobs:
   - job: BuildImage
+    displayName: ACR Build
     pool:
       vmImage: ubuntu-latest
     steps:
     - task: AzureCLI@2
-      displayName: Build image in Azure Container Registry
+      displayName: Build image using az acr build
       inputs:
         azureSubscription: azure-connection-capstone
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
+          echo "Building image in Azure Container Registry..."
           az acr build \
             --registry acrcapstone1769 \
             --image healthchecks:latest \
             .
 
-# ======================
-# DEPLOY TO AKS
-# ======================
+# =====================================
+# DEPLOY TO AKS + INJECT KEY VAULT SECRET
+# =====================================
 - stage: Deploy
-  displayName: Deploy application to AKS
+  displayName: Deploy to AKS
   dependsOn: Build
   jobs:
   - job: Deploy
+    displayName: AKS Deployment
     pool:
       vmImage: ubuntu-latest
     steps:
 
-    # Create / Update Kubernetes Secret from Key Vault
+    # Create / update Kubernetes Secret from Key Vault value
     - task: Kubernetes@1
-      displayName: Create Kubernetes Secret
+      displayName: Create Kubernetes Secret from Key Vault
       inputs:
         connectionType: Azure Resource Manager
         azureSubscription: azure-connection-capstone
@@ -57,9 +59,9 @@ stages:
           --from-literal=SECRET_KEY=$(django-secret-key)
           --dry-run=client -o yaml | kubectl apply -f -
 
-    # Apply Kubernetes Deployment
+    # Apply Kubernetes manifests
     - task: Kubernetes@1
-      displayName: Deploy application to AKS
+      displayName: Apply Kubernetes Deployment
       inputs:
         connectionType: Azure Resource Manager
         azureSubscription: azure-connection-capstone

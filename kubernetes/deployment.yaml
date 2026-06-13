@@ -14,17 +14,31 @@ spec:
       labels:
         app: healthchecks
     spec:
+      # 1. FIXED: Added the image pull secret so AKS can authenticate with your ACR
+      imagePullSecrets:
+        - name: acr-pull-secret
+
+      # 2. FIXED: Isolates database migrations to a single initialization container 
+      # so that replicas don't race and crash your database tables.
+      initContainers:
+        - name: run-migrations
+          image: acrcapstone1769.azurecr.io/healthchecks:latest
+          imagePullPolicy: Always
+          command: ["python", "manage.py", "migrate"]
+          env:
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: SECRET_KEY
+
       containers:
         - name: healthchecks
           image: acrcapstone1769.azurecr.io/healthchecks:latest
           imagePullPolicy: Always
 
-          command: ["/bin/sh"]
-          args:
-            - -c
-            - |
-              python manage.py migrate &&
-              python manage.py runserver 0.0.0.0:8000
+          # 3. CLEANED: The main container now focuses purely on serving the application
+          command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
           ports:
             - containerPort: 8000

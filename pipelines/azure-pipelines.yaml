@@ -9,28 +9,28 @@ variables:
 stages:
 
 # =====================================
-# BUILD IMAGE DIRECTLY IN ACR (NO DOCKER LOGIN)
+# BUILD IMAGE ON AGENT & PUSH TO ACR
 # =====================================
 - stage: Build
-  displayName: Build container image in ACR
+  displayName: Build and Push Image
   jobs:
   - job: BuildImage
-    displayName: ACR Build
+    displayName: Docker Build & Push
     pool:
       vmImage: ubuntu-latest
     steps:
-    - task: AzureCLI@2
-      displayName: Build image using az acr build
+    
+    # Builds the image on the pipeline runner and pushes it using your service connection
+    - task: Docker@2
+      displayName: Build and Push to ACR
       inputs:
-        azureSubscription: azure-connection-capstone
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          echo "Building image in Azure Container Registry..."
-          az acr build \
-            --registry acrcapstone1769 \
-            --image healthchecks:latest \
-            .
+        containerRegistry: ACR-Connection # The connection we created together!
+        repository: healthchecks
+        command: buildAndPush
+        Dockerfile: '**/Dockerfile'
+        tags: |
+          $(Build.BuildId)
+          latest
 
 # =====================================
 # DEPLOY TO AKS + INJECT KEY VAULT SECRET
@@ -58,6 +58,19 @@ stages:
           generic app-secret
           --from-literal=SECRET_KEY=$(django-secret-key)
           --dry-run=client -o yaml | kubectl apply -f -
+
+    # Ensure AKS can pull the image by creating an imagePullSecret using your ACR connection
+    - task: Kubernetes@1
+      displayName: Create ACR Pull Secret in AKS
+      inputs:
+        connectionType: Azure Resource Manager
+        azureSubscription: azure-connection-capstone
+        azureResourceGroup: rg-capstone-project
+        kubernetesCluster: shopping-aks
+        command: createSecret
+        secretType: dockerRegistry
+        secretName: acr-pull-secret
+        dockerRegistryEndpoint: ACR-Connection
 
     # Apply Kubernetes manifests
     - task: Kubernetes@1

@@ -14,16 +14,20 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# ✅ Copy application
-COPY application/healthchecks /app
-
 # ✅ Upgrade pip + setuptools + wheel (VERY IMPORTANT)
 RUN pip install --upgrade pip setuptools wheel
 
-# ✅ Install dependencies (fix common failures)
+# ✅ Step 1: Copy ONLY the requirements file from the subfolder first
+COPY application/healthchecks/requirements.txt /app/
+
+# ✅ Step 2: Install dependencies (This will now find /app/requirements.txt perfectly)
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
+
+# ✅ Step 3: Copy the rest of your application code
+COPY application/healthchecks /app
 
 # ✅ Expose port
 EXPOSE 8000
 
-# ✅ Run Django
+# ✅ Run Django (Using the standard CMD structure)
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
